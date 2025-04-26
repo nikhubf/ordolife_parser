@@ -1,73 +1,83 @@
-import os
-import csv
-import json
-import time
 import requests
 from bs4 import BeautifulSoup
+import pandas as pd
+import json
+import time
 
-def scrape_ordolife():
-    base_url = "https://www.ordolife.com"
-    collection_url = f"{base_url}/collections/all"
-    headers = {"User-Agent": "Mozilla/5.0"}
+BASE_URL = "https://www.ordolife.com"
 
-    os.makedirs("output", exist_ok=True)
+def get_soup(url):
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        return BeautifulSoup(response.text, "html.parser")
+    else:
+        print(f"Ошибка загрузки страницы {url}: {response.status_code}")
+        return None
 
-    response = requests.get(collection_url, headers=headers)
-    soup = BeautifulSoup(response.text, "html.parser")
+def scrape_products():
+    print("Стартуем парсинг OrdoLife...")
+    url = f"{BASE_URL}/collections/all"
+    soup = get_soup(url)
+
+    if not soup:
+        print("Ошибка: не удалось получить главную страницу товаров.")
+        return
 
     products = []
-    product_cards = soup.select("a.full-unstyled-link")
-    product_links = list(set(base_url + card["href"] for card in product_cards))
+    product_cards = soup.select('a.full-unstyled-link')
+
+    product_links = list(set(BASE_URL + card['href'] for card in product_cards if card.get('href')))
+
+    print(f"Найдено {len(product_links)} товаров. Начинаем детальный парсинг...")
 
     for link in product_links:
-        try:
-            prod_resp = requests.get(link, headers=headers)
-            prod_soup = BeautifulSoup(prod_resp.text, "html.parser")
+        time.sleep(1)  # пауза чтобы не забанили
 
-            title_tag = prod_soup.find("h1")
-            title = title_tag.text.strip() if title_tag else "No Title"
+        product_soup = get_soup(link)
+        if not product_soup:
+            continue
 
-            price_tag = prod_soup.select_one(".price__container .price-item--regular")
-            price = price_tag.text.strip() if price_tag else "No Price"
+        title_tag = product_soup.find('h1', class_='product-title')
+        price_tag = product_soup.find('span', class_='price-item')
+        description_tag = product_soup.find('div', class_='product__description')
+        
+        title = title_tag.get_text(strip=True) if title_tag else 'Без названия'
+        price = price_tag.get_text(strip=True) if price_tag else 'Цена не указана'
+        description = description_tag.get_text(strip=True) if description_tag else 'Описание отсутствует'
 
-            desc_tag = prod_soup.find("div", {"class": "product__description"})
-            description = desc_tag.text.strip() if desc_tag else ""
+        # Варианты товаров (цвета, размеры)
+        variants = []
+        variant_elements = product_soup.select('select.product-form__input option')
 
-            img_tags = prod_soup.select(".product__media-item img")
-            images = [img.get("src").replace("//", "https://") for img in img_tags]
+        for var in variant_elements:
+            variant_text = var.get_text(strip=True)
+            if variant_text:
+                variants.append(variant_text)
 
-            variants = []
-            option_tags = prod_soup.select("select")
-            for option_tag in option_tags:
-                for opt in option_tag.select("option"):
-                    variants.append(opt.text.strip())
+        products.append({
+            "name": title,
+            "price": price,
+            "description": description,
+            "variants": variants,
+            "link": link
+        })
 
-            products.append({
-                "name": title,
-                "price": price,
-                "description": description,
-                "images": images,
-                "variants": variants,
-                "link": link
-            })
+        print(f"✔️ Спарсили товар: {title}")
 
-            time.sleep(1)
+    # Сохраняем в CSV
+    df = pd.DataFrame(products)
+    df.to_csv('products.csv', index=False)
+    print("📄 Файл products.csv успешно сохранён!")
 
-        except Exception as e:
-            print(f"Error parsing {link}: {e}")
+    # Сохраняем в JSON
+    with open('products.json', 'w', encoding='utf-8') as f:
+        json.dump(products, f, ensure_ascii=False, indent=4)
+    print("📄 Файл products.json успешно сохранён!")
 
-    # Сохраняем CSV
-    csv_path = os.path.join("output", "products.csv")
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["name", "price", "description", "images", "variants", "link"])
-        writer.writeheader()
-        for product in products:
-            writer.writerow(product)
-
-    # Сохраняем JSON
-    json_path = os.path.join("output", "products.json")
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(products, f, ensure_ascii=False, indent=2)
+    print("✅ Парсинг завершён успешно!")
 
 if __name__ == "__main__":
-    scrape_ordolife()
+    scrape_products()
