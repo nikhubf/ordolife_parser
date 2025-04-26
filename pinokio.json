@@ -1,0 +1,9 @@
+{
+  "manifestVersion": 1,
+  "id": "ordolife-scraper",
+  "name": "OrdoLife Scraper",
+  "icon": "🛒",
+  "tags": ["parser", "shopify", "woocommerce"],
+  "about": "Парсинг товаров с сайта ordolife.com для импорта в WooCommerce",
+  "run": "python3 main.py"
+}
